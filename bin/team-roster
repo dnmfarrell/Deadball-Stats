@@ -1,0 +1,54 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+no warnings 'qw';
+use JSON::XS 'decode_json';
+use Text::ASCIITable;
+
+my $year = shift @ARGV or die 'must provide a year';
+my $team = shift @ARGV or die 'must provide team';
+my $path = "data/$year/$team.json";
+
+open my $fh, '<', $path or die $!;
+my $json = do { local $/;<$fh> };
+my $data = decode_json $json;
+
+my %positions = ( qw(P 1 C 2 1B 3 2B 4 3B 5 SS 6 LF 7 CF 8 RF 9) );
+my @sorted = sort { $positions{ $a->{player}{Position} } <=> $positions{ $b->{player}{Position}} || $a->{player}{JerseyNumber} <=> $b->{player}{JerseyNumber} }
+  grep { my $p = $_->{player}; $_->{stats}{GamesPlayed}{'#text'} && $p->{JerseyNumber} && $positions{$p->{Position}} }
+    @{$data->{cumulativeplayerstats}{playerstatsentry}};
+
+my @batter_rows  = split /\n/, get_batters(\@sorted);
+my @pitcher_rows = split /\n/, get_pitchers(\@sorted);
+
+binmode STDOUT, 'utf8';
+for (0..$#batter_rows) {
+  printf "%s %s\n", $batter_rows[$_], $pitcher_rows[$_] || '';
+}
+
+sub get_batters {
+  my $data = shift;
+
+  my $table = Text::ASCIITable->new({ headingText => 'BATTING' });
+  $table->setCols(qw(# Name P G AB BA OBP SLG SB));
+  for my $e (@$data) {
+    my $p = $e->{player};
+    my $s = $e->{stats};
+    $table->addRow($p->{JerseyNumber}, "$p->{FirstName} $p->{LastName}", $p->{Position}, $s->{GamesPlayed}{'#text'}, $s->{AtBats}{'#text'}, $s->{BattingAvg}{'#text'}, $s->{BatterOnBasePct}{'#text'}, $s->{BatterSluggingPct}{'#text'}, $s->{StolenBases}{'#text'});
+  }
+  return "$table";
+}
+
+sub get_pitchers {
+  my $data = shift;
+
+  my $table = Text::ASCIITable->new({ headingText => 'PITCHING' });
+  $table->setCols(qw(# Name IP W L SV ERA));
+  for my $e (@$data) {
+    my $p = $e->{player};
+    next unless $p->{Position} && $p->{Position} eq 'P';
+    my $s = $e->{stats};
+    $table->addRow($p->{JerseyNumber}, "$p->{FirstName} $p->{LastName}", $s->{InningsPitched}{'#text'}, $s->{Wins}{'#text'}, $s->{Losses}{'#text'}, $s->{Saves}{'#text'}, $s->{EarnedRunAvg}{'#text'});
+  }
+  return "$table";
+}
